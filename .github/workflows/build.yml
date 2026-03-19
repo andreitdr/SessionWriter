@@ -1,0 +1,75 @@
+name: Build Application
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11' # Change this if you use a different version
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        # If you have a requirements.txt in the future, uncomment the next line:
+        # pip install -r requirements.txt
+
+    - name: Build with PyInstaller
+      run: |
+        # Use --windowed or --noconsole to hide the terminal on launch for GUI apps
+        pyinstaller --name SessionWriter --onefile --windowed main.py
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: SessionWriter-${{ runner.os }}
+        path: |
+          dist/SessionWriter*
+          !dist/*.app
+        retention-days: 7
+
+  build-macos-app:
+    name: Build .app on macOS
+    runs-on: macos-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+
+    - name: Build macOS .app bundle
+      run: |
+        pyinstaller --name SessionWriter --windowed main.py
+
+    - name: Upload macOS .app Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: SessionWriter-macOS-App
+        path: dist/SessionWriter.app
+        retention-days: 7
