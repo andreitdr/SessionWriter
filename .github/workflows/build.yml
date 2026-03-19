@@ -14,7 +14,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # macos-14 and macos-latest are Apple Silicon (ARM64) runners on GitHub Actions
+        os: [ubuntu-latest, windows-latest, macos-14]
 
     steps:
     - name: Checkout Code
@@ -29,47 +30,49 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
-        # If you have a requirements.txt in the future, uncomment the next line:
-        # pip install -r requirements.txt
 
     - name: Build with PyInstaller
       run: |
-        # Use --windowed or --noconsole to hide the terminal on launch for GUI apps
         pyinstaller --name SessionWriter --onefile --windowed main.py
+
+    - name: Zip Artifact (macOS)
+      if: matrix.os == 'macos-14'
+      run: |
+        cd dist
+        zip -r SessionWriter-macOS-arm64.zip SessionWriter.app SessionWriter
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: SessionWriter-${{ runner.os }}
+        name: SessionWriter-${{ matrix.os }}
         path: |
           dist/SessionWriter*
+          dist/*.exe
           !dist/*.app
-        retention-days: 7
+        retention-days: 1
+        if-no-files-found: ignore
 
-  build-macos-app:
-    name: Build .app on macOS
-    runs-on: macos-latest
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
       with:
-        python-version: '3.14.3'
+        path: artifacts
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pyinstaller
+    - name: Display structure of downloaded files
+      run: ls -R artifacts
 
-    - name: Build macOS .app bundle
-      run: |
-        pyinstaller --name SessionWriter --windowed main.py
-
-    - name: Upload macOS .app Artifact
-      uses: actions/upload-artifact@v4
+    - name: Create or Update Latest Release
+      uses: softprops/action-gh-release@v2
       with:
-        name: SessionWriter-macOS-App
-        path: dist/SessionWriter.app
-        retention-days: 7
+        name: "Latest Main Build"
+        tag_name: "latest"
+        files: |
+          artifacts/**/*
+        make_latest: true
