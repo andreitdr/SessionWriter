@@ -612,8 +612,28 @@ class SessionWriterApp:
             self.output_dir_var.set(chosen)
             self._save_config(output_dir=chosen)
 
-    def _refresh_datafiles_listbox(self) -> None:
+    def _sync_datafile_entries(self) -> None:
+        """Read current entry widget values back into self.datafiles before a refresh."""
+        for idx, row_w in enumerate(self.datafile_row_widgets):
+            if idx >= len(self.datafiles):
+                break
+            entry = row_w["entry"]
+            assert isinstance(entry, ttk.Entry)
+            # Use the shared row_dict that closures update in real-time
+            rd = row_w.get("_row_dict", {})
+            if rd.get("is_placeholder", False):
+                val = ""
+            else:
+                val = entry.get().strip()
+            name, full_path, _ = self.datafiles[idx]
+            self.datafiles[idx] = (name, full_path, val)
+
+    def _refresh_datafiles_listbox(self, skip_sync: bool = False) -> None:
         """Refresh datafiles row display."""
+        # Persist current entry values before destroying widgets
+        if not skip_sync:
+            self._sync_datafile_entries()
+
         # Destroy existing row widgets
         for row_w in self.datafile_row_widgets:
             for widget in (row_w["entry"], row_w["ext_label"], row_w["name_label"], row_w["path_label"], row_w["remove_btn"]):
@@ -626,43 +646,40 @@ class SessionWriterApp:
             stem = Path(name).stem
             ext = Path(name).suffix  # e.g. ".png"
 
-            entry_var = tk.StringVar(value=dest_name)
-            entry = ttk.Entry(self.datafiles_rows_frame, textvariable=entry_var)
+            entry = ttk.Entry(self.datafiles_rows_frame)
             entry.grid(row=idx, column=0, sticky="ew", pady=1, padx=(0, 4))
-            # Show placeholder (stem only) when empty
-            if not dest_name:
+
+            # Each row dict tracks whether the entry is showing a placeholder
+            is_placeholder = not bool(dest_name)
+            row_dict: dict[str, object] = {"is_placeholder": is_placeholder}
+
+            # Populate entry content (no StringVar — avoids GC clearing the widget)
+            if dest_name:
+                entry.insert(0, dest_name)
+            else:
                 entry.insert(0, stem)
                 entry.configure(foreground="grey")
 
-                def _on_focus_in(e: tk.Event, _entry: ttk.Entry = entry, _stem: str = stem) -> None:
-                    if _entry.get() == _stem and str(_entry.cget("foreground")) == "grey":
-                        _entry.delete(0, tk.END)
-                        _entry.configure(foreground="")
+            def _on_focus_in(e: tk.Event, _entry: ttk.Entry = entry, _rd: dict = row_dict) -> None:
+                if _rd.get("is_placeholder"):
+                    _entry.delete(0, tk.END)
+                    _entry.configure(foreground="")
+                    _rd["is_placeholder"] = False
 
-                def _on_focus_out(e: tk.Event, _entry: ttk.Entry = entry, _stem: str = stem, _idx: int = idx) -> None:
-                    val = _entry.get().strip()
-                    if not val or val == _stem:
-                        _entry.delete(0, tk.END)
-                        _entry.insert(0, _stem)
-                        _entry.configure(foreground="grey")
-                        self.datafiles[_idx] = (self.datafiles[_idx][0], self.datafiles[_idx][1], "")
-                    else:
-                        self.datafiles[_idx] = (self.datafiles[_idx][0], self.datafiles[_idx][1], val)
+            def _on_focus_out(e: tk.Event, _entry: ttk.Entry = entry, _stem: str = stem, _idx: int = idx, _rd: dict = row_dict) -> None:
+                val = _entry.get().strip()
+                if not val:
+                    _entry.delete(0, tk.END)
+                    _entry.insert(0, _stem)
+                    _entry.configure(foreground="grey")
+                    _rd["is_placeholder"] = True
+                    self.datafiles[_idx] = (self.datafiles[_idx][0], self.datafiles[_idx][1], "")
+                else:
+                    _rd["is_placeholder"] = False
+                    self.datafiles[_idx] = (self.datafiles[_idx][0], self.datafiles[_idx][1], val)
 
-                entry.bind("<FocusIn>", _on_focus_in)
-                entry.bind("<FocusOut>", _on_focus_out)
-            else:
-                def _on_change_focus_out(e: tk.Event, _entry: ttk.Entry = entry, _stem: str = stem, _idx: int = idx) -> None:
-                    val = _entry.get().strip()
-                    if not val or val == _stem:
-                        _entry.delete(0, tk.END)
-                        _entry.insert(0, _stem)
-                        _entry.configure(foreground="grey")
-                        self.datafiles[_idx] = (self.datafiles[_idx][0], self.datafiles[_idx][1], "")
-                    else:
-                        self.datafiles[_idx] = (self.datafiles[_idx][0], self.datafiles[_idx][1], val)
-
-                entry.bind("<FocusOut>", _on_change_focus_out)
+            entry.bind("<FocusIn>", _on_focus_in)
+            entry.bind("<FocusOut>", _on_focus_out)
 
             # Show the extension as a non-editable label next to the entry
             ext_label = ttk.Label(self.datafiles_rows_frame, text=ext, foreground="grey")
@@ -681,6 +698,8 @@ class SessionWriterApp:
             self.datafile_row_widgets.append({
                 "entry": entry, "ext_label": ext_label, "name_label": name_label,
                 "path_label": path_label, "remove_btn": remove_btn,
+                "is_placeholder": row_dict["is_placeholder"],
+                "_row_dict": row_dict,
             })
 
         count = len(self.datafiles)
@@ -699,9 +718,12 @@ class SessionWriterApp:
 
     def _remove_datafile_at(self, index: int) -> None:
         """Remove a single datafile by index and refresh."""
+        # Sync while widgets and datafiles list are still aligned
+        self._sync_datafile_entries()
         if 0 <= index < len(self.datafiles):
             self.datafiles.pop(index)
-        self._refresh_datafiles_listbox()
+        # Skip sync in refresh — list and widgets are now misaligned
+        self._refresh_datafiles_listbox(skip_sync=True)
 
     def _remove_selected_datafiles(self) -> None:
         """Remove selected (focused) datafile from list."""
