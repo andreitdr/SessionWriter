@@ -22,10 +22,9 @@ class SessionWriterApp:
 
         self.base_dir = Path(__file__).resolve().parent.parent
         
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        self.default_output_dir = Path(f"./{date_str}/approved").resolve()
+        self.default_output_dir = Path(".").resolve()
 
-        self.initials_var = tk.StringVar(value="TAN")
+        self.initials_var = tk.StringVar(value="")
         self.sequence_var = tk.StringVar(value="A")
         self.start_var = tk.StringVar(value=now_start_string())
         self.duration_var = tk.StringVar(value="normal")
@@ -38,6 +37,10 @@ class SessionWriterApp:
         self.output_dir_var = tk.StringVar(value=str(self.default_output_dir))
 
         self.datafiles: list[tuple[str, str]] = []  # Changed to store (name, full_path)
+        self._pct_updating = False  # guard against recursive trace calls
+
+        self.charter_pct_var.trace_add("write", lambda *_: self._on_charter_pct_changed())
+        self.opportunity_pct_var.trace_add("write", lambda *_: self._on_opportunity_pct_changed())
 
         self._build_ui()
 
@@ -47,16 +50,17 @@ class SessionWriterApp:
         
         # Build form sections in order
         self._build_file_info_section(content, row=0)
-        self._build_charter_section(content, row=1)
-        self._build_tester_section(content, row=2)
-        self._build_breakdown_section(content, row=3)
-        self._build_datafiles_section(content, row=4)
-        self._build_notes_section(content, row=5)
+        self._build_version_env_section(content, row=1)
+        self._build_charter_section(content, row=2)
+        self._build_tester_section(content, row=3)
+        self._build_breakdown_section(content, row=4)
+        self._build_datafiles_section(content, row=5)
+        self._build_notes_section(content, row=6)
         self.bugs_editor = TaggedItemsEditor(content, title="Bugs", tag_label="BUG")
-        self.bugs_editor.grid(row=6, column=0, sticky="ew", pady=(0, 10))
+        self.bugs_editor.grid(row=7, column=0, sticky="ew", pady=(0, 10))
         self.issues_editor = TaggedItemsEditor(content, title="Issues", tag_label="ISSUE")
-        self.issues_editor.grid(row=7, column=0, sticky="ew", pady=(0, 10))
-        self._build_buttons(content, row=8)
+        self.issues_editor.grid(row=8, column=0, sticky="ew", pady=(0, 10))
+        self._build_buttons(content, row=9)
         
         content.columnconfigure(0, weight=1)
         self.root.update_idletasks()  # Force layout computation
@@ -147,6 +151,100 @@ class SessionWriterApp:
         self.areas_text = TtkScrolledText(frame, width=100, height=8, wrap=tk.WORD)
         self.areas_text.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(8, 0))
 
+    def _build_version_env_section(self, parent: tk.Misc, row: int) -> None:
+        """Build Version & Environment section at the top of the page."""
+        frame = ttk.LabelFrame(parent, text="Version & Environment", padding=10)
+        frame.grid(row=row, column=0, sticky="ew", pady=(0, 10))
+        frame.columnconfigure(0, weight=1)
+
+        # --- Versions ---
+        ver_header = ttk.Frame(frame)
+        ver_header.grid(row=0, column=0, sticky="w")
+        ttk.Label(ver_header, text="Versions").grid(row=0, column=0, sticky="w")
+        ttk.Button(ver_header, text="Add Version", command=self._add_version_row).grid(row=0, column=1, padx=(12, 0))
+
+        self.version_rows_frame = ttk.Frame(frame)
+        self.version_rows_frame.grid(row=1, column=0, sticky="ew", pady=(4, 8))
+        self.version_rows: list[dict[str, object]] = []
+        self._add_version_row()  # start with one row
+
+        # --- Environments ---
+        env_header = ttk.Frame(frame)
+        env_header.grid(row=2, column=0, sticky="w")
+        ttk.Label(env_header, text="Environments").grid(row=0, column=0, sticky="w")
+        ttk.Button(env_header, text="Add Environment", command=self._add_env_row).grid(row=0, column=1, padx=(12, 0))
+
+        self.env_rows_frame = ttk.Frame(frame)
+        self.env_rows_frame.grid(row=3, column=0, sticky="ew", pady=(4, 0))
+        self.env_rows: list[dict[str, object]] = []
+        self._add_env_row()  # start with one row
+
+    def _add_version_row(self) -> None:
+        row_frame = ttk.Frame(self.version_rows_frame)
+        row_frame.grid(row=len(self.version_rows), column=0, sticky="ew", pady=2)
+        entry = ttk.Entry(row_frame, width=50)
+        entry.grid(row=0, column=0, sticky="w")
+        remove_btn = ttk.Button(row_frame, text="Remove")
+        remove_btn.grid(row=0, column=1, padx=(8, 0))
+        row = {"frame": row_frame, "entry": entry, "remove": remove_btn}
+        self.version_rows.append(row)
+        remove_btn.configure(command=lambda r=row: self._remove_version_row(r))
+
+    def _remove_version_row(self, row: dict[str, object]) -> None:
+        if len(self.version_rows) <= 1:
+            return  # keep at least one row
+        frame = row["frame"]
+        assert isinstance(frame, ttk.Frame)
+        frame.destroy()
+        self.version_rows.remove(row)
+        for idx, r in enumerate(self.version_rows):
+            f = r["frame"]
+            assert isinstance(f, ttk.Frame)
+            f.grid_configure(row=idx)
+
+    def _add_env_row(self) -> None:
+        row_frame = ttk.Frame(self.env_rows_frame)
+        row_frame.grid(row=len(self.env_rows), column=0, sticky="ew", pady=2)
+        combo = ttk.Combobox(row_frame, values=("VM", "CN", "LOCAL_HW"), width=20)
+        combo.grid(row=0, column=0, sticky="w")
+        remove_btn = ttk.Button(row_frame, text="Remove")
+        remove_btn.grid(row=0, column=1, padx=(8, 0))
+        row = {"frame": row_frame, "combo": combo, "remove": remove_btn}
+        self.env_rows.append(row)
+        remove_btn.configure(command=lambda r=row: self._remove_env_row(r))
+
+    def _remove_env_row(self, row: dict[str, object]) -> None:
+        if len(self.env_rows) <= 1:
+            return  # keep at least one row
+        frame = row["frame"]
+        assert isinstance(frame, ttk.Frame)
+        frame.destroy()
+        self.env_rows.remove(row)
+        for idx, r in enumerate(self.env_rows):
+            f = r["frame"]
+            assert isinstance(f, ttk.Frame)
+            f.grid_configure(row=idx)
+
+    def _get_versions(self) -> list[str]:
+        results: list[str] = []
+        for row in self.version_rows:
+            entry = row["entry"]
+            assert isinstance(entry, ttk.Entry)
+            val = entry.get().strip()
+            if val:
+                results.append(val)
+        return results
+
+    def _get_environments(self) -> list[str]:
+        results: list[str] = []
+        for row in self.env_rows:
+            combo = row["combo"]
+            assert isinstance(combo, ttk.Combobox)
+            val = combo.get().strip()
+            if val:
+                results.append(val)
+        return results
+
     def _build_tester_section(self, parent: tk.Misc, row: int) -> None:
         """Build Tester section."""
         frame = ttk.LabelFrame(parent, text="Tester", padding=10)
@@ -185,24 +283,64 @@ class SessionWriterApp:
         ttk.Label(frame, text="Opportunity %").grid(row=2, column=4, sticky="w", pady=(8, 0))
         ttk.Spinbox(frame, from_=0, to=100, textvariable=self.opportunity_pct_var, width=6).grid(row=2, column=5, sticky="w", padx=(8, 0), pady=(8, 0))
 
+    # --- auto-calc charter / opportunity ---
+    def _on_charter_pct_changed(self) -> None:
+        if self._pct_updating:
+            return
+        try:
+            val = int(self.charter_pct_var.get())
+        except ValueError:
+            return
+        if 0 <= val <= 100:
+            self._pct_updating = True
+            self.opportunity_pct_var.set(str(100 - val))
+            self._pct_updating = False
+
+    def _on_opportunity_pct_changed(self) -> None:
+        if self._pct_updating:
+            return
+        try:
+            val = int(self.opportunity_pct_var.get())
+        except ValueError:
+            return
+        if 0 <= val <= 100:
+            self._pct_updating = True
+            self.charter_pct_var.set(str(100 - val))
+            self._pct_updating = False
+
     def _build_datafiles_section(self, parent: tk.Misc, row: int) -> None:
-        """Build Data Files section."""
+        """Build Data Files section with a treeview list."""
         frame = ttk.LabelFrame(parent, text="Data Files", padding=10)
         frame.grid(row=row, column=0, sticky="ew", pady=(0, 10))
         frame.columnconfigure(0, weight=1)
 
-        controls = ttk.Frame(frame)
-        controls.grid(row=0, column=0, sticky="ew")
-        controls.columnconfigure(0, weight=1)
+        # Top bar: buttons + file count
+        top_bar = ttk.Frame(frame)
+        top_bar.grid(row=0, column=0, sticky="ew")
+        top_bar.columnconfigure(2, weight=1)
 
-        self.datafile_entry_var = tk.StringVar()
-        ttk.Entry(controls, textvariable=self.datafile_entry_var).grid(row=0, column=0, sticky="ew")
-        ttk.Button(controls, text="Add", command=self._add_datafile).grid(row=0, column=1, padx=(8, 0))
-        ttk.Button(controls, text="Choose Files", command=self._choose_datafiles).grid(row=0, column=2, padx=(8, 0))
-        ttk.Button(controls, text="Remove Selected", command=self._remove_selected_datafiles).grid(row=0, column=3, padx=(8, 0))
+        ttk.Button(top_bar, text="\u2795  Add Files", command=self._choose_datafiles).grid(row=0, column=0)
+        ttk.Button(top_bar, text="\u2796  Remove Selected", command=self._remove_selected_datafiles).grid(row=0, column=1, padx=(8, 0))
+        self.datafile_count_label = ttk.Label(top_bar, text="0 files", foreground="grey")
+        self.datafile_count_label.grid(row=0, column=2, sticky="e")
 
-        self.datafiles_listbox = tk.Listbox(frame, height=5, selectmode=tk.EXTENDED, highlightthickness=0, borderwidth=0)
-        self.datafiles_listbox.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        # Treeview with columns: name and path
+        tree_frame = ttk.Frame(frame)
+        tree_frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        tree_frame.columnconfigure(0, weight=1)
+
+        cols = ("name", "path")
+        self.datafiles_tree = ttk.Treeview(tree_frame, columns=cols, show="headings", height=5, selectmode="extended")
+        self.datafiles_tree.heading("name", text="File Name", anchor="w")
+        self.datafiles_tree.heading("path", text="Location", anchor="w")
+        self.datafiles_tree.column("name", width=250, minwidth=120)
+        self.datafiles_tree.column("path", width=500, minwidth=200)
+
+        tree_scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.datafiles_tree.yview)
+        self.datafiles_tree.configure(yscrollcommand=tree_scroll.set)
+
+        self.datafiles_tree.grid(row=0, column=0, sticky="ew")
+        tree_scroll.grid(row=0, column=1, sticky="ns")
 
     def _build_notes_section(self, parent: tk.Misc, row: int) -> None:
         """Build Test Notes section."""
@@ -227,20 +365,14 @@ class SessionWriterApp:
             self.output_dir_var.set(chosen)
 
     def _refresh_datafiles_listbox(self) -> None:
-        """Refresh datafiles listbox display."""
-        self.datafiles_listbox.delete(0, tk.END)
-        for name, _ in self.datafiles:
-            self.datafiles_listbox.insert(tk.END, name)
-
-    def _add_datafile(self) -> None:
-        """Add datafile from entry field to list."""
-        value = self.datafile_entry_var.get().strip()
-        if not value:
-            return
-        if not any(name == value for name, _ in self.datafiles):
-            self.datafiles.append((value, value))
-            self._refresh_datafiles_listbox()
-        self.datafile_entry_var.set("")
+        """Refresh datafiles treeview display."""
+        for item in self.datafiles_tree.get_children():
+            self.datafiles_tree.delete(item)
+        for name, full_path in self.datafiles:
+            display_path = str(Path(full_path).parent) if full_path != name else ""
+            self.datafiles_tree.insert("", tk.END, values=(name, display_path))
+        count = len(self.datafiles)
+        self.datafile_count_label.configure(text=f"{count} file{'s' if count != 1 else ''}")
 
     def _choose_datafiles(self) -> None:
         """Open file chooser and add selected files to datafiles list."""
@@ -255,10 +387,13 @@ class SessionWriterApp:
 
     def _remove_selected_datafiles(self) -> None:
         """Remove selected datafiles from list."""
-        indices = list(self.datafiles_listbox.curselection())
-        if not indices:
+        selected = self.datafiles_tree.selection()
+        if not selected:
             return
-        for index in reversed(indices):
+        # Map treeview items back to indices
+        all_items = self.datafiles_tree.get_children()
+        indices = sorted((all_items.index(s) for s in selected), reverse=True)
+        for index in indices:
             self.datafiles.pop(index)
         self._refresh_datafiles_listbox()
 
@@ -280,6 +415,8 @@ class SessionWriterApp:
             start=self.start_var.get(),
             charter_description=self.charter_text.get("1.0", "end-1c"),
             selected_areas=self._selected_areas(),
+            versions=self._get_versions(),
+            environments=self._get_environments(),
             testers=self._testers(),
             duration=self.duration_var.get(),
             multiplier=self.multiplier_var.get(),
@@ -311,7 +448,7 @@ class SessionWriterApp:
         text.configure(state=tk.DISABLED)
 
     def save(self) -> None:
-        """Validate form, prompt for save location, copy files, and write .ses file."""
+        """Validate form, create date folders, copy data files, and write .ses file."""
         data = self._build_form_data()
         errors = validate_form(data)
         if errors:
@@ -319,14 +456,16 @@ class SessionWriterApp:
             return
 
         date_str = datetime.now().strftime("%Y-%m-%d")
-        
-        output_dir = Path(self.output_dir_var.get().strip() or str(self.default_output_dir))
-        datafiles_out_dir = Path(f"./{date_str}datafiles").resolve()
+        output_root = Path(self.output_dir_var.get().strip() or str(self.default_output_dir))
+        approved_dir = output_root / date_str / "approved"
+        datafiles_dir = output_root / date_str / "dataFiles"
 
         default_name = session_filename(data)
+        approved_dir.mkdir(parents=True, exist_ok=True)
+
         path = filedialog.asksaveasfilename(
             title="Save session file",
-            initialdir=str(output_dir),
+            initialdir=str(approved_dir),
             initialfile=default_name,
             defaultextension=".ses",
             filetypes=[("Session files", "*.ses"), ("All files", "*.*")],
@@ -335,19 +474,15 @@ class SessionWriterApp:
             return
 
         target = Path(path)
-        
-        # Only create directories at save time
-        output_dir.mkdir(parents=True, exist_ok=True)
-        if self.datafiles:
-            datafiles_out_dir.mkdir(parents=True, exist_ok=True)
 
-        for name, original_path in self.datafiles:
-            if original_path and Path(original_path).is_file():
-                dest_path = datafiles_out_dir / name
-                try:
-                    shutil.copy2(original_path, dest_path)
-                except Exception as e:
-                    print(f"Failed to copy datafile {name}: {e}")
+        if self.datafiles:
+            datafiles_dir.mkdir(parents=True, exist_ok=True)
+            for name, original_path in self.datafiles:
+                if original_path and Path(original_path).is_file():
+                    try:
+                        shutil.copy2(original_path, datafiles_dir / name)
+                    except Exception as e:
+                        print(f"Failed to copy datafile {name}: {e}")
 
         target.write_text(build_content(data), encoding="utf-8")
         messagebox.showinfo("Saved", f"Session file written to:\n{target}")

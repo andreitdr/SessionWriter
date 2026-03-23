@@ -68,6 +68,12 @@ def validate_form(data: SessionFormData) -> list[str]:
     if not data.selected_areas:
         errors.append("Add at least one area.")
 
+    if not data.versions:
+        errors.append("Add at least one version.")
+
+    if not data.environments:
+        errors.append("Add at least one environment.")
+
     if not data.testers:
         errors.append("Add at least one tester name.")
 

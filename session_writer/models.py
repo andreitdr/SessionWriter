@@ -16,6 +16,8 @@ class SessionFormData:
     start: str
     charter_description: str
     selected_areas: list[str]
+    versions: list[str]
+    environments: list[str]
     testers: list[str]
     duration: str
     multiplier: str

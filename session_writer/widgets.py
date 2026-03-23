@@ -52,10 +52,9 @@ class TaggedItemsEditor(ttk.LabelFrame):
         row_frame.grid(row=len(self.rows), column=0, sticky="ew", pady=4)
         row_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(row_frame, text=f"{self.tag_label} ID").grid(row=0, column=0, sticky="w")
-        id_entry = ttk.Entry(row_frame, width=30)
-        id_entry.grid(row=0, column=1, sticky="w", padx=(6, 8))
-        id_entry.insert(0, id_text)
+        next_id = len(self.rows) + 1
+        id_label = ttk.Label(row_frame, text=f"{self.tag_label}-{next_id}", width=12)
+        id_label.grid(row=0, column=0, sticky="w")
 
         remove_btn = ttk.Button(row_frame, text="Remove")
         remove_btn.grid(row=0, column=2, sticky="e")
@@ -66,7 +65,7 @@ class TaggedItemsEditor(ttk.LabelFrame):
         if body_text:
             body.insert("1.0", body_text)
 
-        row = {"frame": row_frame, "id": id_entry, "body": body, "remove": remove_btn}
+        row = {"frame": row_frame, "id_label": id_label, "body": body, "remove": remove_btn}
         self.rows.append(row)
         remove_btn.configure(command=lambda r=row: self.remove_row(r))
 
@@ -76,21 +75,26 @@ class TaggedItemsEditor(ttk.LabelFrame):
         frame.destroy()
 
         self.rows.remove(row)
+        self._renumber_rows()
+
+    def _renumber_rows(self) -> None:
+        """Re-grid rows and update their auto-assigned IDs."""
         for index, existing in enumerate(self.rows):
             existing_frame = existing["frame"]
             assert isinstance(existing_frame, ttk.Frame)
             existing_frame.grid_configure(row=index)
+            id_label = existing["id_label"]
+            assert isinstance(id_label, ttk.Label)
+            id_label.configure(text=f"{self.tag_label}-{index + 1}")
 
     def get_items(self) -> list[TaggedItem]:
         items: list[TaggedItem] = []
-        for row in self.rows:
-            id_entry = row["id"]
+        for index, row in enumerate(self.rows):
             body_widget = row["body"]
-            assert isinstance(id_entry, ttk.Entry)
             assert isinstance(body_widget, TtkScrolledText)
 
-            item_id = id_entry.get().strip()
+            item_id = str(index + 1)
             body_text = body_widget.get("1.0", "end-1c").strip()
-            if item_id or body_text:
+            if body_text:
                 items.append(TaggedItem(item_id=item_id, body=body_text))
         return items

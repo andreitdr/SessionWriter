@@ -28,9 +28,8 @@ def build_content(data: SessionFormData) -> str:
         bugs_lines = ["#N/A"]
     else:
         bugs_lines: list[str] = []
-        for bug in data.bugs:
-            tag = "#BUG" if not bug.item_id else f"#BUG {bug.item_id}"
-            bugs_lines.append(tag)
+        for idx, bug in enumerate(data.bugs, start=1):
+            bugs_lines.append(f"#BUG {idx}")
             bugs_lines.extend(line.rstrip() for line in bug.body.splitlines())
             bugs_lines.append("")
         while bugs_lines and bugs_lines[-1] == "":
@@ -40,16 +39,26 @@ def build_content(data: SessionFormData) -> str:
         issues_lines = ["#N/A"]
     else:
         issues_lines: list[str] = []
-        for issue in data.issues:
-            tag = "#ISSUE" if not issue.item_id else f"#ISSUE {issue.item_id}"
-            issues_lines.append(tag)
+        for idx, issue in enumerate(data.issues, start=1):
+            issues_lines.append(f"#ISSUE {idx}")
             issues_lines.extend(line.rstrip() for line in issue.body.splitlines())
             issues_lines.append("")
         while issues_lines and issues_lines[-1] == "":
             issues_lines.pop()
 
+    version_lines = [f"VERSION | {v}" for v in data.versions]
+    environment_lines = [f"ENVIRONMENT | {e}" for e in data.environments]
+
     parts: list[str] = []
-    parts.extend(_section("CHARTER", [*charter_description_lines, "", "#AREAS", *data.selected_areas]))
+    parts.extend(_section("CHARTER", [
+        *charter_description_lines,
+        "",
+        "#AREAS",
+        *data.selected_areas,
+        "",
+        *version_lines,
+        *environment_lines,
+    ]))
     
     start_line = data.start.strip().lower()
     parsed_start = parse_start(start_line)
