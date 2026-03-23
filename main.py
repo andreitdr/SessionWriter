@@ -23,5 +23,3 @@ if __name__ == "__main__":
         print(f"ERROR: Failed to start application: {e}", file=sys.stderr, flush=True)
         traceback.print_exc()
         sys.exit(1)
-
-
